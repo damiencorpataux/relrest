@@ -2,6 +2,13 @@ REST Joint
 =
 **A REST Interface based on SQL Joins for CRUD operation on Relational Databases.**
 
+Fetch the summary and time (and their tag color)
+of all events that happened before the millenium
+and are related to tags ids greater than 50? Easy!
+```
+/resource/+/+/event.time,event.summary,tag.color?/event.time.lt=2000-01-01/tag.id.gt=50
+```
+
 Run the example rest service
 -
 ```
@@ -16,5 +23,5 @@ cd example
 python -c "import data; data.populate()"
 python -m app
 
-open "localhost:5000"
+open localhost:5000
 ```

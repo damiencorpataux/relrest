@@ -1,0 +1,122 @@
+{% extends "html" %}
+
+{% block title %}Example REST Service{% endblock %}
+
+{% block body %}
+  <style>
+    body { font-family: 'Source Code Pro', monospace }
+    p { font-weight: 300 }
+    ul { font-size: 85% }
+    h1 i { color: forestgreen }
+    restjoint-resource-display :nth-child(n+2) { filter: opacity(.33) }
+    restjoint-resource-display:hover * { filter: opacity(1) }
+  </style>
+
+ <h3>
+    <span class="initialism">REST</span> Resources
+  </h3>
+  <p>
+    Resources are mapped to sqlalchemy models.
+  </p>
+  <p>
+    <a href="{{url_for('resource_index')}}" class="float-right">Raw data</a>
+    <ul class="resource">
+      {% for resource, uri in resource_index.items() %}
+        <li>
+          <restjoint-resource-display>
+            <span class="d-lg-inline d-block">
+              Resouce
+              <a href="{{uri}}">{{resource}}</a>
+            </span>
+            <span class="d-lg-inline d-block">
+              is mapped to sqla model <code>{{rest_service.model[resource]}}</code>
+            </span>
+            <span class="d-lg-inline d-block">
+              and accessible at <a href="{{uri}}">{{uri}}</a>
+            </span>
+          </restjoint-resource-display>
+        </li>
+      {% endfor %}
+    </ul>
+  </p>
+  <hr>
+
+  <h3>
+    <span class="initialism">URI</span> Decoder
+  </h3>
+  <p>
+    When you make a request, the URI is decoded into a request object
+    which is processed to generate a sqlachemy query.
+    Try one of these URI and view the decoded request object
+    and the returned data:
+  </p>
+  <p>
+    <a href="{{url_for('examples')}}" class="float-right">Raw data</a>
+    {% for section, examples in examples.items() %}
+    <strong>{{section}}</strong>
+    <ul>
+      {% for explain, uri in examples %}
+        {% set uri_decode = unquote(url_for('decode', uri=uri)) %}
+        {% set uri_resource = unquote(url_for('resource', uri=uri)) %}
+        <li class="mb-2">
+          {{explain}}<br>
+          <span class="badge badge-success">
+            GET
+          </span>
+          {{uri|safe}}<br>
+          <div class="small" style="font-weight:200">
+            <a href="{{uri_decode|safe}}">decode</a>
+            <a href="{{uri_resource|safe}}">data</a>
+            </div>
+        </li>
+      {% endfor %}
+    </ul>
+    {% endfor %}
+  </p>
+  <hr>
+
+  <h3>
+    Graph
+  </h3>
+  <p>
+    Oh cake !
+    Rest Joint make it easy to query relational databases.
+  </p>
+  <p>
+        Only <i>one</i> REST request is needed to populate this graph.
+    When you click on a node, only <i>one</i> REST request is needed
+    to build and display the relational path on the graph.
+  </p>
+  <p>
+    <ul>
+      <li>
+        #todo
+      </li>
+    </ul>
+  </p>
+  <hr>
+
+  <h3>
+    Service information
+  </h3>
+  <p>
+    Miscellaneous. Rest Joint is a <span class="initialism">REST</span> interface wrapper on sqlalchemy.
+  </p>
+  <p>
+    <a href="{{url_for('service_info')}}" class="float-right">Raw data</a>
+    <ul>
+      {% for key, value in service_info.items() %}
+        <li class="mb-2">
+          <div style="word-break:break-all">
+            <strong>{{key}}</strong>
+            <br>
+            {{value}}
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  </p>
+  {% endblock %}
+
+{% block script %}
+{% endblock %}

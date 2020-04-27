@@ -1,0 +1,6 @@
+flask
+flask-sqlalchemy
+sqlalchemy
+
+# FIXME: faker is only needed for the example (for dataset generation)
+faker
