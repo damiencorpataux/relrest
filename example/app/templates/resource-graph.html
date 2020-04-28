@@ -1,0 +1,155 @@
+{% extends "html" %}
+
+
+{#% block title %}Resource graph{% endblock %#}
+
+
+{% block body %}
+
+  <div id="network"></div>
+
+{% endblock %}
+
+
+{% block script %}
+
+  <script src="https://unpkg.com/vis-network@7.5.2"></script>
+  <script src="https://unpkg.com/vis-data@6.5.1"></script>
+
+  <script>
+
+    const baseurl = '/resource/'
+    const resources = ['tag', 'event', 'type'];  // TODO: can be retrieved from /resource-index
+
+    const container = document.getElementById('network');
+
+    const data = {
+        nodes: new vis.DataSet(),
+        edges: new vis.DataSet()};
+
+    const options = {
+        clickToUse: true,
+        nodes: {
+            shape: 'dot',
+            size: 16
+        },
+        physics: {
+            minVelocity: 0,
+        }
+    };
+
+    const network = new vis.Network(container, data, options);
+    window.network = network;  // dev purpose
+
+    network.once('afterDrawing', () => {
+        window.dispatchEvent(new Event('resize'));
+        load_nodes();
+        // load_edges('event');
+    });
+
+    window.addEventListener('resize', () => {
+        // fill viewport height with graph
+        const height = window.innerHeight - container.offsetTop - 15;
+        container.style.height = height+'px';
+    });
+
+    network.on('click', properties => {
+        const [resource, id] = (properties.nodes[0] || '').split('-');
+        load_edges(resource, id);
+    });
+
+    network.on('doubleClick', properties => {
+          const [resource, id] = (properties.nodes[0] || '').split('-');
+          if (resource && id) window.location = baseurl + `${resource}/${id}`;
+    });
+
+    /*
+     * Populate nodes from rest api. All nodes are retrieved.
+     */
+    function load_nodes() {
+        data.nodes.clear();
+        return Promise.all(resources.map(resource => {
+            return new Promise((resolve, reject) => {
+                console.debug('Fetching resource', resource)
+                const uri = baseurl + resource;
+                fetch(uri).then(response =>
+                    response.json().then(records =>
+                        resolve([resource, records])));
+            });
+        })).then(collection => {
+            const nodes = [];
+            for (const [resource, records] of collection) {
+                console.debug('Fetched resource', resource, records.length, 'records');
+                for (const record of records) {
+                    nodes.push({
+                        id: `${resource}-${record.id}`,
+                        group: resource,
+                        label: `${resource} ${record.id}`});
+                }
+            }
+            console.debug('Adding', nodes.length, 'nodes to the graph');
+            data.nodes.add(nodes);
+            // network.setData({nodes: new vis.DataSet(nodes), edges: new vis.DataSet()});
+            network.fit({animation: {duration: 1000, easingFunction: 'easeOutQuint'}});
+            return nodes;
+        });
+    }
+
+    /*
+     * Populate edges from rest api for the given resource and id. All relations are retrieved.
+     */
+    function load_edges(resource, id) {
+        // Default to loading all relations of all resources 'event'
+        if (!resource) resource = 'event';
+        if (!id) id = '';
+        console.debug('Loading relations for resource', resource, 'id', id);
+
+        const joinpaths = {
+            event: `/event=${id}/type&/event/tag`,
+            type: `/type=${id}/event/tag`,
+            tag: `/tag=${id}/event/type`,
+        };
+
+        // Compute end-to-end resources relations from the joinpaths of the given resource
+        const join_ends = [];  // a list of tuples eg: [[join_end_1, join_end_2], [join_end_1, join_end_3]]
+        for (const joinpath of joinpaths[resource].split('&')) {
+            // TODO: use the restjoint javascript uri parser instead of the 2 lines below:
+            let joinnodes = joinpath.replace(/^\/+/, '').split('/');  // remove leading slash before split
+            joinnodes = joinnodes.map((joinnode) => joinnode.split('=')[0].split('.')[0]);  // keep only resource from joinnode descrption that can be eg: resource.field.compatator=1
+
+            for (let i=0; i < joinnodes.length - 1; i++) {
+                join_ends.push([joinnodes[i], joinnodes[i+1]]);
+            }
+        }
+        console.log('Edges: joinpath', joinpaths[resource], 'produced join_ends:', join_ends)
+
+        const uri = baseurl + '+/+/event.id,type.id,tag.id?' + joinpaths[resource];
+        fetch(uri).then(response => {
+            response.json().then(relations => {
+
+              const edges = [];
+                for (const relation of relations) {
+                    for (const [resource_from, resource_to] of join_ends) {
+                        // FIXME: makes duplicated edges, due to the combinatory nature of the records
+                        const record_from = relation[resource_from];
+                        const record_to = relation[resource_to];
+                        edges.push({
+                            from: `${resource_from}-${record_from.id}`,
+                            to: `${resource_to}-${record_to.id}`
+                        });
+                    }
+                }
+                console.log('Edges: produced edges', edges);
+
+                console.log('Adding', edges.length, 'edges to graph');
+                data.edges.clear();
+                data.edges.add(edges);
+
+                return edges;
+            });
+        });
+    }
+
+  </script>
+
+{% endblock %}

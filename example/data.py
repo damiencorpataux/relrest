@@ -17,17 +17,13 @@ Base = declarative.declarative_base()
 # metadata = MetaData()
 
 # Database tables definition
-nn_tag_event = Table("nn_tag_event", Base.metadata,
-    Column("tag_id", ForeignKey("tag.id"), primary_key=True),
-    Column("event_id", ForeignKey("event.id"), primary_key=True))
+nn_event_type = Table("nn_event_type", Base.metadata,
+    Column("event_id", ForeignKey("event.id"), primary_key=True),
+    Column("type_id", ForeignKey("type.id"), primary_key=True))
 
-class Tag(Base):
-    __tablename__ = "tag"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    color = Column(String, default=None)
-
-    event = orm.relationship("Event", back_populates="tag", secondary=nn_tag_event)
+nn_event_tag = Table("nn_event_tag", Base.metadata,
+    Column("event_id", ForeignKey("event.id"), primary_key=True),
+    Column("tag_id", ForeignKey("tag.id"), primary_key=True))
 
 class Event(Base):
     __tablename__ = "event"
@@ -36,7 +32,26 @@ class Event(Base):
     description = Column(String)
     time = Column(DateTime, default=datetime.utcnow)
 
-    tag = orm.relationship("Tag", back_populates="event", secondary=nn_tag_event, lazy='joined')
+    type = orm.relationship("Type", back_populates="event", secondary=nn_event_type)#, lazy='joined')
+    tag = orm.relationship("Tag", back_populates="event", secondary=nn_event_tag)#, lazy='joined')
+
+class Type(Base):
+    __tablename__ = "type"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+
+    event = orm.relationship("Event", back_populates="type", secondary=nn_event_type)
+
+class Tag(Base):
+    __tablename__ = "tag"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    color = Column(String, default=None)
+
+    tag_id = Column(Integer, ForeignKey('tag.id'))
+
+    tag = orm.relationship("Tag")#, lazy='joined', join_depth=2)  # eager loading of self-referencing relationships, see https://docs.sqlalchemy.org/en/13/orm/self_referential.html#configuring-self-referential-eager-loading
+    event = orm.relationship("Event", back_populates="tag", secondary=nn_event_tag)
 
 
 # Data population:
@@ -97,10 +112,14 @@ def populate():
 
     # Just populate it it
 
-    n_tag = 100
     n_event = 1000
+    n_type = 10
+    n_tag = 100
 
     records = dict(
+        type=[Type(name=word)
+            for word in generate('word', n_type)],
+
         tag=[Tag(name=word)
             for word in generate('word', n_tag)],
 
@@ -116,10 +135,12 @@ def populate():
 
     print(', '.join(f'{len(records[model])} {model}' for model in records.keys()))
 
-    # Call to distribute() could be automated by (discovering or) giving a relationship structure, eg:
+    # Calls to distribute() could be automated by (discovering or) giving a relationship structure, eg:
     # structure = dict(tag = dict(event = dict(... = dict(...),
     #                                          ... = dict(...))))
+    # distribute('tag', 'tag')  # FIXME
     distribute('tag', 'event')
+    distribute('type', 'event')
     dataset = [record for model, records in records.items() for record in records]
 
     Base.metadata.drop_all(engine)

@@ -39,7 +39,6 @@ TODO: make clean implementation of the relational field hook `get_relcolumn()`.
 from . import util
 
 import sqlalchemy
-from collections import defaultdict
 import logging
 
 log = logging.getLogger(__name__)  # logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(filename)s:%(lineno)s - %(name)s.%(funcName)s - %(levelname)s - %(message)s")
@@ -243,11 +242,11 @@ class Service(object):
         # Apply limit to sqla query
         query = query.limit(limit)
 
-        # Handle field '_count'
-        if "_count" in [field for f_resource, field in fields]:
-            # Note: field _count is a virtual field that triggers the
+        # Handle field ':count'
+        if ":count" in [field for f_resource, field in fields]:
+            # Note: field :count is a virtual field that triggers the
             # return of dict(count = the number of records matched by the given uri query).
-            return dict(_count=query.count())
+            return {":count": query.count()}
 
         # Process and apply fields to sqla query
         for field in fields:
@@ -260,6 +259,8 @@ class Service(object):
 
             if not model:
                 raise ValueError(f"Field '{field}' is missing a resource component that is required in resourceless request, eg: resource.field")
+                # TODO: allow to specify model == '+' which shall create
+                # a load_only [for model.<field> in models]
 
             # apply field selection to sqla query select statement,
             # see https://docs.sqlalchemy.org/en/latest/orm/loading_columns.html

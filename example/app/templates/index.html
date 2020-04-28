@@ -8,8 +8,8 @@
     p { font-weight: 300 }
     ul { font-size: 85% }
     h1 i { color: forestgreen }
-    restjoint-resource-display :nth-child(n+2) { filter: opacity(.33) }
-    restjoint-resource-display:hover * { filter: opacity(1) }
+    div.resource-display :nth-child(n+2) { filter: opacity(.33) }
+    div.resource-display:hover * { filter: opacity(1) }
   </style>
 
  <h3>
@@ -23,7 +23,7 @@
     <ul class="resource">
       {% for resource, uri in resource_index.items() %}
         <li>
-          <restjoint-resource-display>
+          <div class="resource-display">
             <span class="d-lg-inline d-block">
               Resouce
               <a href="{{uri}}">{{resource}}</a>
@@ -34,10 +34,26 @@
             <span class="d-lg-inline d-block">
               and accessible at <a href="{{uri}}">{{uri}}</a>
             </span>
-          </restjoint-resource-display>
+          </div>
         </li>
       {% endfor %}
     </ul>
+  </p>
+  <hr>
+
+  <h3>
+    Graph demo
+  </h3>
+  <p>
+    <a href="{{url_for('resource_graph')}}">View graph</a>
+  </p>
+  <p>
+    Rest Joint make it a piece of cake to query resources and relationships,
+    up to nth degree of relationship.
+  </p>
+  <p>
+    When you click on a node, only <strong>one</strong> REST request is needed
+    to build and display the relational path on the graph !
   </p>
   <hr>
 
@@ -72,27 +88,6 @@
       {% endfor %}
     </ul>
     {% endfor %}
-  </p>
-  <hr>
-
-  <h3>
-    Graph
-  </h3>
-  <p>
-    Oh cake !
-    Rest Joint make it easy to query relational databases.
-  </p>
-  <p>
-        Only <i>one</i> REST request is needed to populate this graph.
-    When you click on a node, only <i>one</i> REST request is needed
-    to build and display the relational path on the graph.
-  </p>
-  <p>
-    <ul>
-      <li>
-        #todo
-      </li>
-    </ul>
   </p>
   <hr>
 
