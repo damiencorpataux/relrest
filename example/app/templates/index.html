@@ -12,7 +12,7 @@
     div.resource-display:hover * { filter: opacity(1) }
   </style>
 
- <h3>
+  <h3>
     <span class="initialism">REST</span> Resources
   </h3>
   <p>
@@ -39,6 +39,66 @@
       {% endfor %}
     </ul>
   </p>
+  <hr>
+
+  <h3>
+    Role-based Authorization
+  </h3>
+  <p>
+    Resource authorization is a simple role-based access control
+    that let you describe roles that allowed to perform operations on resources.
+  </p>
+  <p>
+    #TODO: let roles describe resources fields.
+  </p>
+  <p>
+    <form class="form-inline">
+      <div class="form-group">
+        <input type="text" class="form-control" name="username" placeholder="Username">
+      </div>
+      <div class="form-group mx-sm-3">
+        <input type="password" class="form-control" name="password" placeholder="Password">
+      </div>
+      <div class="form-group">
+        <button type="submit" class="btn btn-primary">Authenticate</button>
+      </div>
+    </form>
+  </p>
+  <p>
+    <strong>You are authenticated as:</strong>
+    {{dict(session) or 'Not authenticated'}}
+  </p>
+  <p>
+    <strong>Configured users:</strong>
+    {{users}}
+  </p>
+  <p>
+    <strong>Configured roles:</strong>
+    {{rest_service.roles}}
+  </p>
+  <p>
+    You can also directly fetch data via
+    <code>curl -X GET user:password@{{request.host}}/resource/event</code>.
+  </p>
+  <script>
+    document.querySelector('button').addEventListener('click', (event) => {
+        event.preventDefault();
+
+        const username = document.querySelector('input[name=username]').value;
+        const password = document.querySelector('input[name=password]').value;
+        console.log(username, password)
+        fetch("{{url_for('authenticate')}}", {
+            method: 'PUT',
+            // credentials: 'include'  // https://stackoverflow.com/a/51726055/1300775
+            headers: new Headers({
+                "Authorization": `Basic ${btoa(`${username}:${password}`)}`
+              })
+        }).catch((error) => {
+        }).then((response) => {
+            location.reload()  // finally
+        });
+    });
+  </script>
   <hr>
 
   <h3>

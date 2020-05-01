@@ -28,7 +28,7 @@
         edges: new vis.DataSet()};
 
     const options = {
-        clickToUse: true,
+        clickToUse: false,
         nodes: {
             shape: 'dot',
             size: 16
@@ -68,31 +68,30 @@
      */
     function load_nodes() {
         data.nodes.clear();
-        return Promise.all(resources.map(resource => {
-            return new Promise((resolve, reject) => {
-                console.debug('Fetching resource', resource)
-                const uri = baseurl + resource;
-                fetch(uri).then(response =>
-                    response.json().then(records =>
-                        resolve([resource, records])));
-            });
-        })).then(collection => {
-            const nodes = [];
-            for (const [resource, records] of collection) {
-                console.debug('Fetched resource', resource, records.length, 'records');
-                for (const record of records) {
-                    nodes.push({
-                        id: `${resource}-${record.id}`,
-                        group: resource,
-                        label: `${resource} ${record.id}`});
-                }
-            }
-            console.debug('Adding', nodes.length, 'nodes to the graph');
-            data.nodes.add(nodes);
-            // network.setData({nodes: new vis.DataSet(nodes), edges: new vis.DataSet()});
-            network.fit({animation: {duration: 1000, easingFunction: 'easeOutQuint'}});
-            return nodes;
-        });
+        for (const resource of resources) {
+            console.debug('Fetching resource', resource)
+            const uri = baseurl + resource;
+            fetch(uri).then(response => {
+                return response.json().then(records => {
+                    if (!response.ok) throw records;
+                    const nodes = [];
+                    console.debug('Fetched resource', resource, records.length, 'records');
+                    for (const record of records) {
+                        nodes.push({
+                            id: `${resource}-${record.id}`,
+                            group: resource,
+                            label: `${resource} ${record.id}`});
+                    }
+                    console.debug('Adding', nodes.length, 'nodes to the graph');
+                    data.nodes.add(nodes);
+                    // network.setData({nodes: new vis.DataSet(nodes), edges: new vis.DataSet()});
+                    network.fit({animation: {duration: 1000, easingFunction: 'easeOutQuint'}});
+                    return nodes;
+                }).catch((error) => {
+                    console.warn(`Failed to load resource ${resource}`, error);
+                });
+            })
+        }
     }
 
     /*
@@ -105,6 +104,7 @@
         console.debug('Loading relations for resource', resource, 'id', id);
 
         const joinpaths = {
+            // NOTE: simply add of modify a joinpath to display any relationship path
             event: `/event=${id}/type&/event/tag`,
             type: `/type=${id}/event/tag`,
             tag: `/tag=${id}/event/type`,
@@ -124,18 +124,52 @@
         console.log('Edges: joinpath', joinpaths[resource], 'produced join_ends:', join_ends)
 
         const uri = baseurl + '+/+/event.id,type.id,tag.id?' + joinpaths[resource];
+
         fetch(uri).then(response => {
             response.json().then(relations => {
 
-              const edges = [];
-                for (const relation of relations) {
+                if (!response.ok) throw relations;
+
+                // NOTE: this commented code creates duplicated edges,
+                //       due to the combinatory nature of the records
+                //       it might be nice for restjoint to provide multiple
+                //       serializers, eg: combinatory and nested (deduplicated).
+                // const edges = [];
+                // for (const relation of records) {
+                //     for (const [resource_from, resource_to] of join_ends) {
+                //         // FIXME: makes duplicated edges, due to the combinatory nature of the records
+                //         const record_from = relation[resource_from];
+                //         const record_to = relation[resource_to];
+                //         edges.push({
+                //             from: `${resource_from}-${record_from.id}`,
+                //             to: `${resource_to}-${record_to.id}`
+                //         });
+                //     }
+                // }
+                // data.edges.clear();
+                // data.edges.add(edges);
+                // return edges;
+
+                const edges_map = {};
+                for (const relation of records) {
                     for (const [resource_from, resource_to] of join_ends) {
-                        // FIXME: makes duplicated edges, due to the combinatory nature of the records
+                        // NOTE: deduplicate relations from the combinatory result in `records`.
                         const record_from = relation[resource_from];
                         const record_to = relation[resource_to];
+                        const edge_from = `${resource_from}-${record_from.id}`;
+                        const edge_to = `${resource_to}-${record_to.id}`;
+                        if (edges_map[edge_from]) edges_map[edge_from].add(edge_to)
+                        else edges_map[edge_from] = new Set().add(edge_to);
+                    }
+                }
+
+                // Create edges from deduplicated edges map
+                const edges = [];
+                for (const [edge_from, edges_to] of Object.entries(edges_map)) {
+                    for (const edge_to of edges_to) {
                         edges.push({
-                            from: `${resource_from}-${record_from.id}`,
-                            to: `${resource_to}-${record_to.id}`
+                            from: edge_from,
+                            to: edge_to
                         });
                     }
                 }
@@ -146,6 +180,9 @@
                 data.edges.add(edges);
 
                 return edges;
+
+            }).catch((error) => {
+                console.warn(`Failed to load edges for resource '${resource}'`, error);
             });
         });
     }

@@ -9,7 +9,7 @@ import data
 import flask
 from flask_sqlalchemy import SQLAlchemy
 try:
-    raise ModuleNotFoundError()#import restjoint
+    import restjoint
 except ModuleNotFoundError:
     # FIXME
     import sys; from os import path
@@ -17,6 +17,8 @@ except ModuleNotFoundError:
     import restjoint
 
 app = flask.Flask(__name__)
+
+app.config["SECRET_KEY"] = "changeme!"
 app.config["SQLALCHEMY_DATABASE_URI"] = data.engine.url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ECHO"] = True
@@ -24,7 +26,38 @@ app.config["JSONIFY_PRETTYPRINT_REGULAR"] = True
 
 db = SQLAlchemy(app)
 models = restjoint.util.models_from(data)
-rest_service = restjoint.Service(db.session, models)
+rest_service = restjoint.Service(db.session, models, roles={
+    "admin": {
+        "*": ["create", "read", "update", "delete"]},
+    "user": {
+        "event": ["create", "read", "update", "delete"],
+        "tag": ["create", "read", "update", "delete"],
+        },#"type": ["read"]}
+    None: {
+        "event": ["create", "read", "update", "delete"]}
+    })
+
+users = {
+    # "username": ("password", ["role1", "role2"])
+    "admin": ("password", ["admin"]),
+    "user": ("password", ["user"])}
+
+@app.before_request
+def authenticate_every_request():
+    """
+    Process basic authentication on every request.
+    This allows http-basic-auth at once, eg when running
+        curl user:password@localhost/resource/type
+    """
+    authenticate()
+
+@app.errorhandler(Exception)
+def unhandled_exception(e):
+    status = {
+        AssertionError: 403, # forbidden
+        ValueError: 400 # bad request
+    }.get(type(e), 500)
+    return dict(error=f"{e.__class__.__name__}: {e}"), status
 
 @app.route("/")
 def index():
@@ -37,22 +70,43 @@ def index():
         service_info=service_info(),
         examples=examples(),
         rest_service=rest_service,
+        users=users,
         unquote=urllib.parse.unquote)
+
+@app.route("/authenticate")
+def authenticate():
+    """
+    HTTP Basic authentication example.
+    """
+    if flask.request.authorization:
+
+        username = flask.request.authorization.username
+        password = flask.request.authorization.password
+
+        if not users.get(username) or not users[username][0] == password:
+            raise ValueError("Invalid credentials")
+
+        flask.session["username"] = username
+        flask.session["roles"] = users[username][1]
+
+    return dict(
+        username=flask.session.get("username", []),
+        roles=flask.session.get("roles"))
 
 @app.route("/resource/<path:uri>", methods=["PUT", "GET", "PATCH", "DELETE", "HEAD"])
 def resource(uri):
     """
     Rest interface for CRUD operations.
     """
-    uri = uri + "?" + flask.request.query_string.decode()  # join url and query string
-
+    roles = flask.session.get("roles", [])
     method = flask.request.method
+    uri = uri + "?" + flask.request.query_string.decode()  # join url and query string
     handler = {
-           "PUT": lambda: rest_service.create(uri, flask.request.json),
-           "GET": lambda: rest_service.read(uri),
-          "HEAD": lambda: rest_service.read(uri),  # eg. curl -I issues a HEAD request
-         "PATCH": lambda: rest_service.update(uri, flask.request.json),
-        "DELETE": lambda: rest_service.delete(uri, id)}
+           "PUT": lambda: rest_service.create(uri, flask.request.json, roles),
+           "GET": lambda: rest_service.read(uri, roles),
+          "HEAD": lambda: rest_service.read(uri, roles),  # eg. curl -I issues a HEAD request
+         "PATCH": lambda: rest_service.update(uri, flask.request.json, roles),
+        "DELETE": lambda: rest_service.delete(uri, id, roles)}
 
     result = handler[method]()
 

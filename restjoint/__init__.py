@@ -39,26 +39,26 @@ TODO: make clean implementation of the relational field hook `get_relcolumn()`.
 from . import util
 
 import sqlalchemy
+
+from collections import defaultdict
 import logging
 
 log = logging.getLogger(__name__)  # logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(filename)s:%(lineno)s - %(name)s.%(funcName)s - %(levelname)s - %(message)s")
 
 
 # Note: in uri, id '+' and '-' allow to specify a field without having to specify an id,
-# eg: /author/+/name or /author/-/name?/artwork=123
+# eg: /author/+/name or /author/-/name?/writing=123
 #
 # Value '-' returns a single record,
 # value '+' returns a list of records.
 reserved_ids = ["+", "-"]
 
 # Note: in uri, resource '+' allow to not specify joins without having to specify a resource,
-# eg: /author/+/name or /+?/author/artwork=12
+# eg: /author/+/name or /+?/author/writing=12
 #
-# Value '+' returns the records for all the resources specified in joins.
-#
-# TODO: let specify a list of resources to limit the presence of resources in response,
-#       eg: /topic,autor?/autor/artwork/topic
-# reserved_resources = ["+"]  # FIXME: it is not used, actually...
+# Value '+' returns the records for all the resources specified in joinpaths.
+# Value '-' returns the records for resources specified in first node of each joinpath.
+reserved_resources = ["+", "-"]
 
 class Service(object):
 
@@ -80,22 +80,32 @@ class Service(object):
         """
         return self._resource
 
-    def __init__(self, sqla_session, sqla_model_dict):
+    def __init__(self, sqla_session, sqla_model_dict, roles={}):
         """
         Create a rest service instance providing crud operations
         for the given sqla `models` and `session`.
 
         Argument `models` is an object whose properties contain the models to expose as rest resource.
         Argument `session` is a sqla session object.
+        Argument `roles` is a dict describing the per-role operations that are authorized on resources.
+        Not that the role `None` is the default role that anybody is granted:
+            {"admin": {"*": ["create", "read", "update", "delete"]},
+             "user": {"event": ["create", "read", "update", "delete"],
+                      "tag": ["create", "read", "update", "delete"],
+                      "type": ["read"]},
+             None: {"event": ["read"]}}
         """
         super().__init__()
 
         for key, not_model in filter(lambda model: not util.is_model(model), sqla_model_dict.values()):
             raise ValueError(f"Argument sqla_model_dict contains a key '{key}'={model} which is not a sqla model")
 
+        self.session = sqla_session
+
         self._model = sqla_model_dict
         self._resource = {v: k for k, v in self._model.items()}
-        self.session = sqla_session
+
+        self.roles = roles
 
     def decode(self, uri):
         """
@@ -107,14 +117,55 @@ class Service(object):
             default_field=self.default_field,
             default_comparator=self.default_comparator)
 
+    def authorize(self, operation, request, for_roles):
+        """
+        Raise AssertionError if the given `operation` on `resource`
+        is not allowed for the given `roles`, eg:
+            authorize("create", "event", ["user"])
+
+        TODO: allow `roles` to specify resource and optional field, eg:
+              {"user": {"credentials": ["read"],
+                        "credentials.password": []},
+                        "post.id": ["read"]}
+        makes user allowed to read resource 'credentials' except field 'password',
+        and to read only the field 'id' of resource 'post'.
+        """
+        if not self.roles:
+            return  # empty self.roles means disabled authorization
+
+        rights = defaultdict(set)
+        for_roles = [None, *for_roles]  # role None is the default role that anybody is granted
+        for role in for_roles:
+            for role_resource, role_operations in self.roles[role].items():
+                if role_resource == "*":
+                    for any_resource in self.model.keys():
+                        rights[any_resource].update(role_operations)
+                else:
+                    rights[role_resource].update(role_operations)
+        rights = {resource: list(operations) for resource, operations in rights.items()}  # convert defaultdict to dict and sets to lists
+
+        resources_involved = [request["resource"]] if request["resource"] not in reserved_resources else []
+        resources_involved += [resource for joinpath in request['joinpaths'] for resource, _, _, _  in joinpath]
+        for resource_involved in resources_involved:
+            if not operation in rights.get(resource_involved, []):
+                raise AssertionError(
+                    f"Roles {for_roles} not allowed to perform operation '{operation}' "
+                    f"for request {request}' involving resources {resources_involved} "
+                    f"missing in roles { {role: description for role, description in self.roles.items() if role in for_roles} }")
+
     def create(self, resource, record):
+        request = self.decode(uri)
+        self.authorize("create", request, roles)
         raise NotImplementedError()
 
-    def read(self, uri):
+    def read(self, uri, for_roles=[]):
         """
         Read and return record(s) for the given `uri`.
         """
         request = self.decode(uri)
+
+        self.authorize("read", request, for_roles)  # FIXME: pass request dict to allow authorize() to check all involved resources
+
         log.debug(f"Reading 'uri={uri}' decoded into {request}")
 
         return self.read_resource(
@@ -125,7 +176,7 @@ class Service(object):
             joinpaths=request["joinpaths"],
             limit=request["limit"])
 
-    def update(self, uri, record):
+    def update(self, uri, record, for_roles=[]):
         """
         Update the existing resource `id` for with the given `record`.
 
@@ -134,18 +185,29 @@ class Service(object):
         """
         request = self.decode(uri)
 
-        if request["field"]:
-            raise ValueError(f"Update operation does not support fields in URI and field '{fields}' was given")
+        self.authorize("update", request, for_roles)
 
-        return self.read_resource(
+        if request["fields"]:
+            # ignore fields description in rest request
+            # raise ValueError(f"Update operation does not support fields in URI and field '{fields}' was given")
+            pass
+
+        self.update_resource(
             resource=request["resource"],
             id=request["id"],
             record=record)
 
-    def delete(self, resource, id):
+        return self.read_resource(
+            resource=request["resource"],
+            id=request["id"],
+            fields=request["fields"])
+
+    def delete(self, resource, id, for_roles=[]):
+        request = self.decode(uri)
+        self.authorize("delete", request, for_roles)
         raise NotImplementedError()
 
-    def read_resource(self, resource, id, fields, filters, joinpaths, limit):
+    def read_resource(self, resource, id=None, fields=[], filters=[], joinpaths=[], limit=None):
         """
         Query database and return a single or multiple record(s) or recordtuple(s).
 
@@ -156,7 +218,7 @@ class Service(object):
         Support joining tables in a chaining manner to filter on foreign fields (a joinpath),
         up to arbitrary degree of relationship.
         Support `resource='+'`, used to return recordtuples of multiple resources according the given `joinpath`. Eg:
-            /+/artwork.id=1 or /+?/artwork/topic
+            /+/writing.id=1 or /+?/writing/topic
         """
 
         # Create models to be queried in `session.query(models)`,
@@ -171,7 +233,7 @@ class Service(object):
 
             if not joinpaths:
                 raise ValueError(
-                    f"Using resource '+' requires a joins-path specification, eg: /+?/topic/artwork")
+                    f"Using resource '+' requires a joins-path specification, eg: /+?/topic/writing")
 
             base_model = None  # base model will be set in query string processing below
 
@@ -235,7 +297,7 @@ class Service(object):
                 relcolumn = get_relcolumn(relresource)
 
                 # Note: adds a chain of joins and filters to the current query, in order to generate this kind of query:
-                #   s.query(data.Author).join(data.Author.artwork).join(data.Artwork.activity).join(data.Activity.topic).filter(data.Topic.id.in_([1]))
+                #   s.query(data.Author).join(data.Author.writing).join(data.Writing.activity).join(data.Activity.topic).filter(data.Topic.id.in_([1]))
                 query = query.join(getattr(last_relmodel or surrogate_base_model or base_model, relcolumn))  # use base_model or surrogate_base_model for first iteration
                 last_relmodel = self.model[relresource] # last_relmodel is used in next iteration to create the "joins chain"
 
@@ -308,10 +370,6 @@ class Service(object):
             self.session.commit()
         except Exception as e:
             raise e  # FIXME
-        finally:
-            record = query.one()
-            return {field: getattr(record, field) for field in userdata}
-
 
     # def get_field(self, column):
     #     """

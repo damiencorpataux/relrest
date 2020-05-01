@@ -64,7 +64,7 @@ def populate():
     from faker import Faker
     import math
 
-    fake = Faker("fr_FR")  # french touch
+    fake = Faker("fr_FR")  # french touch
     def generate(kind, n=10):
         """
         Return `n` unique words of the given `kind`, which is a Faker provider.

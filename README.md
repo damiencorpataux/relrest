@@ -1,6 +1,7 @@
 REST Joint
 =
-**A REST Interface based on SQL Joins for CRUD operation on Relational Databases.**
+**A REST Interface based on SQL Joins for CRUD operation on Relational Databases,
+with role-based access control on resouces.**
 
 Fetch the summary and time (and their tag color)
 of all events that happened before the millenium
@@ -21,7 +22,7 @@ pip3 install -r requirements.txt
 
 cd example
 python -c "import data; data.populate()"
-python -m app
+flask run
 
-open localhost:5000
+open http://localhost:5000
 ```

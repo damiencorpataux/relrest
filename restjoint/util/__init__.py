@@ -34,14 +34,22 @@ def serialize_result(service_resource_map, result_or_resulttuple):
     when `result_or_resulttuple` is a list of tuples.
 
     Argument `result_or_resulttuple` can be a plain list of results and a list of tuples of results,
-    eg: [result_topic] and [(result_topic, result_artwork), (result_topic, result_artwork)].
+    eg: [result_topic] and [(result_topic, result_writing), (result_topic, result_writing)].
 
     If the given `result_or_resulttuple` is a list of results, the returned json contains
     eg: [result_topic, ...] where 'result_topic' is a dict of the serialized topic result.
     Otherwise, when `result_or_resulttuple` is a list of tuples of results, the returned json contains
-    eg: [{'topic': result_topic, 'artwork': result_artwork}, ...].
+    eg: [{'topic': result_topic, 'writing': result_writing}, ...].
 
     A result tuple is the tuple of sqla resultset for one combinatory result.
+
+    TODO: provide with multiple serializers, at least:
+        - combinatory: as implemented below
+        - nested: return a result object with nested records according resources hierachy (joinpaths),
+                  that can help the end-user with deduplication.
+                  Eg, in example/app/templates/resource-grpah.html, we need to deduplicate
+                  while creating edges in javascript function `load_edges()`.
+
     """
     if isinstance(result_or_resulttuple, tuple):
         # Note: `resulttuple` is the combinatory sqla result of all the joins with appiled filters,
