@@ -1,5 +1,5 @@
 """
-Rest Joint.
+RelRest.
 
 URI encoder and decoder.
 
@@ -64,12 +64,12 @@ def encode(resource, id=None, fields=[], joinpaths={}, filters={}, limit=None):
         query,
         ''))
 
-def decode(uri, default_resource=None, default_field='id', default_comparator='eq'):
+def decode(uri, default_resource=None, default_field='id', default_comparator='eq', default_direction='asc'):
     """
     Return an object containing the serialized respresentation of the given uri.
 
-    We call this object a 'restjoint-request' and it is a central part of the framework,
-    see the docstring of the `restjoint` module.
+    We call this object a 'relrest-request' and it is a central part of the framework,
+    see the docstring of the `relrest` module.
 
     Missing components for filter and joinpaths specifications are defaulted to the value of given
     `default_resource`, `default_field` and `default_comparator`. For example:
@@ -89,7 +89,11 @@ def decode(uri, default_resource=None, default_field='id', default_comparator='e
     """
     parsed_uri = urllib.parse.urlparse(uri)
 
+    fields = []
+    joinpaths = []
+    filters = []
     limit = None
+    order = []
 
     # Extract resource, id and fields from uri path; path is formatted as [resource[/id[/fields]]]
     path = parsed_uri.path.strip('/').split('/')
@@ -110,13 +114,10 @@ def decode(uri, default_resource=None, default_field='id', default_comparator='e
             f"URI path must contain at most 3 components, eg. /resource/id/fields")
 
     # Extract fields
-    fields = []
     for rf in filter(len, FIELDS_CSV.split(',')):
         fields.append(field__resource_field(rf, default_resource))
 
     # Extract filters and joinpaths from uri query string
-    joinpaths = []
-    filters = []
     for arg, value in QUERY.items():
 
         if arg.startswith('/'):
@@ -136,9 +137,26 @@ def decode(uri, default_resource=None, default_field='id', default_comparator='e
 
             joinpaths.append(joinpath_nodes)  # a list of tuples
 
+        # Extract limit
         elif arg == '_limit':
-            # query `arg`: is a limit, `value` is a scalar
             limit = value
+
+        # Extract order
+        elif arg == '_order':
+            for order_rfd in value.split(','):
+                # order_rfd is [resource[.field[:direction]]]
+                try:
+                    resource, order_fd = order_rfd.split('.')
+                except ValueError:
+                    resource = default_resource
+                    order_fd = order_rfd
+                try:
+                    field, direction = order_fd.split(':')
+                except ValueError:
+                    field = order_fd
+                    direction = default_direction
+
+                order.append([resource, field, direction])
 
         else:
             # query `arg`: is a filter: a rfc description formatted as: [[resource.]field[.comparator]][=value]]
@@ -151,6 +169,7 @@ def decode(uri, default_resource=None, default_field='id', default_comparator='e
         'fields': fields,
         'joinpaths': joinpaths,
         'filters': filters,
+        'order': order,
         'limit': limit}
 
 

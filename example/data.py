@@ -1,5 +1,5 @@
 """
-Rest Joint database example.
+RelRest database example.
 """
 
 # See: https://docs.sqlalchemy.org/en/13/orm/tutorial.html
@@ -10,7 +10,7 @@ from sqlalchemy.ext import declarative
 from datetime import datetime
 
 # SQLA engine, session and declarative_base
-uri = "sqlite:////tmp/rest-joint-example.sqlite"  # FIXME: /tmp is wiped on reboots
+uri = "sqlite:////tmp/relrest-example.sqlite"  # FIXME: /tmp is wiped on reboots
 engine = create_engine(uri, echo=True)
 Session = orm.sessionmaker(bind=engine)
 Base = declarative.declarative_base()

@@ -1,5 +1,5 @@
 """
-Rest Joint web service example.
+RelRest web service example.
 """
 
 # TODO: role based access management: https://flask-user.readthedocs.io/en/latest/authorization.html
@@ -9,12 +9,12 @@ import data
 import flask
 from flask_sqlalchemy import SQLAlchemy
 try:
-    import restjoint
+    import relrest
 except ModuleNotFoundError:
     # FIXME
     import sys; from os import path
     sys.path.append(path.join(path.dirname(__file__), "../.."))
-    import restjoint
+    import relrest
 
 app = flask.Flask(__name__)
 
@@ -25,17 +25,16 @@ app.config["SQLALCHEMY_ECHO"] = True
 app.config["JSONIFY_PRETTYPRINT_REGULAR"] = True
 
 db = SQLAlchemy(app)
-models = restjoint.util.models_from(data)
-rest_service = restjoint.Service(db.session, models, roles={
-    "admin": {
-        "*": ["create", "read", "update", "delete"]},
+models = relrest.util.models_from(data)
+rest_service = relrest.Service(db.session, models, roles={
+    "*": {
+        "event": ["create", "read", "update"]
+    },
     "user": {
-        "event": ["create", "read", "update", "delete"],
-        "tag": ["create", "read", "update", "delete"],
-        },#"type": ["read"]}
-    None: {
-        "event": ["create", "read", "update", "delete"]}
-    })
+        "tag": ["*"],
+        "type": ["*", "-update", "-delete"]},
+    "admin": {
+        "*": ["*"]}})
 
 users = {
     # "username": ("password", ["role1", "role2"])
@@ -90,8 +89,8 @@ def authenticate():
         flask.session["roles"] = users[username][1]
 
     return dict(
-        username=flask.session.get("username", []),
-        roles=flask.session.get("roles"))
+        username=flask.session.get("username"),
+        roles=flask.session.get("roles", []))
 
 @app.route("/resource/<path:uri>", methods=["PUT", "GET", "PATCH", "DELETE", "HEAD"])
 def resource(uri):
@@ -113,7 +112,7 @@ def resource(uri):
     # if "_debug" in flask.request.args:
     #     result = dict(result=result, debug=dict(
     #         uri=uri,
-    #         decoded=restjoint.util.uri.decode(uri)))
+    #         decoded=relrest.util.uri.decode(uri)))
 
     return flask.jsonify(result)
 
@@ -141,8 +140,8 @@ def decode(uri):
     """
     # TODO: add the generated sql (prepare statement) !
     uri = uri + "?" + flask.request.query_string.decode()  # Note: marshalling here (returns an equivalent but not always identical uri)
-    decoded = restjoint.util.uri.decode(uri)
-    encoded = restjoint.util.uri.encode(**decoded)
+    decoded = relrest.util.uri.decode(uri)
+    encoded = relrest.util.uri.encode(**decoded)
     return dict(
         uri=dict(
             as_received=uri,
@@ -152,11 +151,11 @@ def decode(uri):
 @app.route("/service-info")
 def service_info():
     """
-    Return information about `restjoint.Service`.
+    Return information about `relrest.Service`.
     """
     engine = rest_service.session.get_bind()
     return {
-        "restjoint.version": "#todo",
+        "relrest.version": "#todo",
 
         "sqlalchemy.version": "#todo",
 
@@ -179,7 +178,7 @@ def examples():
     """
     Return a list of examples:
 
-        - uri: a list of URI examples formatted for jointrest
+        - uri: a list of URI examples formatted for RelRest
     """
     # TODO: this example dataset could be stored in database, for une mise en abime sympa
     import urllib  # unquote urls for readability

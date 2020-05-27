@@ -1,5 +1,5 @@
 """
-Rest Joint.
+RelRest.
 
 Terminology:
 
@@ -16,8 +16,8 @@ Terminology:
     - id: is an integer that represent the primary key of a sqla model
 
     - uri: eg. /resource/id/field?filter=abc&/subresource=1
-    - restjoint-request: is an object that is decoded from a given uri; this object represents
-          a restjoint rest request on a resource (`see util.uri.decode()`)
+    - relrest-request: is an object that is decoded from a given uri; this object represents
+          a relrest rest request on a resource (`see util.uri.decode()`)
           it is a central part of the framework !
 
 Conventions:
@@ -63,8 +63,13 @@ reserved_resources = ["+", "-"]
 class Service(object):
 
     # FIXME: make those defaults non-static
-    default_field = 'id'  # default field for filters and joinpath decoder
-    default_comparator = 'eq'  # default comparator for filters and joinpath decoder
+    default_field = "id"  # default field for filters and joinpath decoder
+    default_comparator = "eq"  # default comparator for filters and joinpath decoder
+    default_order = {}  # by-resource default order, eg: {
+                        # "event": [("event", "time", "asc"), ("event", "summary", "asc")],
+                        # "type": [("type", "name", "asc")],
+                        # "tag": [("tag", "name", "asc")]}
+    default_direction = 'asc'  # default direction
 
     @property
     def model(self):
@@ -93,7 +98,7 @@ class Service(object):
              "user": {"event": ["create", "read", "update", "delete"],
                       "tag": ["create", "read", "update", "delete"],
                       "type": ["read"]},
-             None: {"event": ["read"]}}
+             "*": {"event": ["read"]}}
         """
         super().__init__()
 
@@ -105,17 +110,59 @@ class Service(object):
         self._model = sqla_model_dict
         self._resource = {v: k for k, v in self._model.items()}
 
-        self.roles = roles
+        self.rights = defaultdict(lambda: defaultdict(set))
+        self.add_roles(**roles)
 
-    def decode(self, uri):
+    def add_roles(self, **roles_descriptions):
         """
-        Return `util.uri.decode(uri)` with default field and comparator
-        from this instance `default_field` and `default_comparator` properties.
+        Add the given `roles` description to `self.rights`.
+        Argument `roles` is eg: {
+            "role-1": {
+                "*": ["*"],
+                "resource": ["-delete"]},
+            "role-2": {
+                "*": ["*", "-delete"],
+                "resource": ["-*", "read"]}}
+        Wildcard (*) for resources
         """
-        return util.uri.decode(uri,
-            default_resource=None,
-            default_field=self.default_field,
-            default_comparator=self.default_comparator)
+        roles_expanded = []
+        for role, role_description in roles_descriptions.items():
+            for resource, operations in role_description.items():
+
+                if resource == "*":
+                    resources_expanded = self.model.keys()
+                else:
+                    resources_expanded = [resource]
+
+                for resource_expanded in resources_expanded:
+
+                    for operation in operations:
+
+                        if operation == "*":
+                            operations_expanded = ["c", "r", "u", "d"]
+                        elif operation == "-*":
+                            operations_expanded = ["-c", "-r", "-u", "-d"]
+                        else:
+                            operations_expanded = [operation]
+
+                        for operation_expanded in operations_expanded:
+
+                            discard = operation_expanded[0] == "-"
+                            op = (operation_expanded[1] if discard else operation_expanded[0]).lower()
+                            if op not in "crud":
+                                raise ValueError(f"Invalid operation '{operation}' (on resource '{resource}' for role '{role}')")
+
+                            roles_expanded.append((role, resource_expanded, op, discard))
+
+        for role, resource, op, discard in roles_expanded:
+            # add roles after validation of everything
+            if discard:
+                self.rights[role][resource].discard(op)
+            else:
+                self.rights[role][resource].add(op)
+
+        for role, role_rights in self.rights.items():
+            print(f"Computed rights for role {role}:", dict(role_rights))
 
     def authorize(self, operation, request, for_roles):
         """
@@ -130,33 +177,48 @@ class Service(object):
         makes user allowed to read resource 'credentials' except field 'password',
         and to read only the field 'id' of resource 'post'.
         """
-        if not self.roles:
-            return  # empty self.roles means disabled authorization
+        if not self.rights:
+            return  # empty self.rights means disabled authorization
 
-        rights = defaultdict(set)
-        for_roles = [None, *for_roles]  # role None is the default role that anybody is granted
-        for role in for_roles:
-            for role_resource, role_operations in self.roles[role].items():
-                if role_resource == "*":
-                    for any_resource in self.model.keys():
-                        rights[any_resource].update(role_operations)
-                else:
-                    rights[role_resource].update(role_operations)
-        rights = {resource: list(operations) for resource, operations in rights.items()}  # convert defaultdict to dict and sets to lists
-
+        operation = operation[0]  # 'c' or 'r' or 'u' or 'd'
+        for_roles = ["*", *for_roles]  # role "*" is the default role that anybody is granted
         resources_involved = [request["resource"]] if request["resource"] not in reserved_resources else []
         resources_involved += [resource for joinpath in request['joinpaths'] for resource, _, _, _  in joinpath]
-        for resource_involved in resources_involved:
-            if not operation in rights.get(resource_involved, []):
-                raise AssertionError(
-                    f"Roles {for_roles} not allowed to perform operation '{operation}' "
-                    f"for request {request}' involving resources {resources_involved} "
-                    f"missing in roles { {role: description for role, description in self.roles.items() if role in for_roles} }")
+        allowed = any(operation in self.rights[for_role][resource_involved]
+            for resource_involved in resources_involved
+            for for_role in for_roles)
 
-    def create(self, resource, record):
+        if not allowed:
+            raise AssertionError(
+                f"Roles {for_roles} not allowed to perform operation '{operation}' "
+                f"for request {request}' involving resources {resources_involved} ")
+
+    def decode(self, uri):
+        """
+        Return `util.uri.decode(uri)` with default field and comparator
+        from this instance `default_field` and `default_comparator` properties.
+        """
+        return util.uri.decode(uri,
+            default_resource=None,
+            default_field=self.default_field,
+            default_comparator=self.default_comparator,
+            default_direction=self.default_direction)
+
+    def create(self, uri, record, for_roles=[]):
+        """
+        Add the given `record` to database.
+        """
         request = self.decode(uri)
-        self.authorize("create", request, roles)
-        raise NotImplementedError()
+
+        self.authorize("create", request, for_roles)
+
+        record = self.create_resource(
+            resource=request["resource"],
+            record=record)
+
+        return self.read_resource(
+            resource=request["resource"],
+            id=record.id)
 
     def read(self, uri, for_roles=[]):
         """
@@ -174,11 +236,12 @@ class Service(object):
             fields=request["fields"],
             filters=request["filters"],
             joinpaths=request["joinpaths"],
+            order=request["order"],
             limit=request["limit"])
 
     def update(self, uri, record, for_roles=[]):
         """
-        Update the existing resource `id` for with the given `record`.
+        Update the existing resource `id` with the given `record`.
 
         The given `record` can contain 0..n fields can be updated
         and fields do not exist in sqla model are ignored.
@@ -202,12 +265,28 @@ class Service(object):
             id=request["id"],
             fields=request["fields"])
 
-    def delete(self, resource, id, for_roles=[]):
+    def delete(self, uri, for_roles=[]):
         request = self.decode(uri)
         self.authorize("delete", request, for_roles)
-        raise NotImplementedError()
+        self.delete_resource(
+            resource=request["resource"],
+            id=request["id"])
 
-    def read_resource(self, resource, id=None, fields=[], filters=[], joinpaths=[], limit=None):
+        return None
+
+    def create_resource(self, resource, record={}):
+        """
+        Create resource and return created model.
+        """
+        row = self.model[resource]()
+        for field, value in record.items():
+            self.set_property(row, field, value)
+
+        self.session.add(row)
+        self.session.commit()
+        return row
+
+    def read_resource(self, resource, id=None, fields=[], filters=[], joinpaths=[], order=[], limit=None):
         """
         Query database and return a single or multiple record(s) or recordtuple(s).
 
@@ -298,7 +377,19 @@ class Service(object):
 
                 # Note: adds a chain of joins and filters to the current query, in order to generate this kind of query:
                 #   s.query(data.Author).join(data.Author.writing).join(data.Writing.activity).join(data.Activity.topic).filter(data.Topic.id.in_([1]))
-                query = query.join(getattr(last_relmodel or surrogate_base_model or base_model, relcolumn))  # use base_model or surrogate_base_model for first iteration
+                joincolumn = getattr(last_relmodel or surrogate_base_model or base_model, relcolumn)  # use base_model or surrogate_base_model for first iteration
+                if resource == '+':
+                    # FIXME: allow to describe joinpath to use `query.outerjoin`
+                    #   to include empty relationships in combinatory result, eg:
+                    #   /author=25/+writing/+activity & /activity/+activity_type & /activity/topic
+                    #   -> need to: update util.uri.decode() to parse the +
+                    #               and return joinpaths=[(type, resource, field, comparator, value)]
+                    #
+                    # For now, resourceless requests trigger outerjoin
+                    query = query.outerjoin(joincolumn)
+                else:
+                    query = query.join(joincolumn)
+
                 last_relmodel = self.model[relresource] # last_relmodel is used in next iteration to create the "joins chain"
 
         # Apply limit to sqla query
@@ -310,31 +401,71 @@ class Service(object):
             # return of dict(count = the number of records matched by the given uri query).
             return {":count": query.count()}
 
-        # Process and apply fields to sqla query
-        for field in fields:
-            f_resource, f_field = field
+        # Apply order to sqla query
+        order = order + self.default_order.get(resource, [])
+        for o_resource, o_field, o_direction in order:
 
-            if f_resource:
-                model = self.model[f_resource]
+            if o_resource:
+                o_model = self.model[o_resource]
             else:
-                model = base_model
+                o_model = base_model
 
-            if not model:
-                raise ValueError(f"Field '{field}' is missing a resource component that is required in resourceless request, eg: resource.field")
-                # TODO: allow to specify model == '+' which shall create
-                # a load_only [for model.<field> in models]
+            query = query.order_by(getattr(getattr(o_model, o_field), o_direction)())
+            # FIXME: handle lowercase ordering:
+            # column = getattr(model, o_field)
+            # modifier = sqlalchemy.func.lower
+            # direction = getattr(sqlalchemy.func, o_direction)
+            # query = query.order_by(direction(column))
 
-            # apply field selection to sqla query select statement,
-            # see https://docs.sqlalchemy.org/en/latest/orm/loading_columns.html
-            try:
-                # field is a property
-                query = query.options(sqlalchemy.orm.Load(model).load_only(f_field))
+        # Process and apply fields to sqla query
+        if resource in ["+", "-"]:
+            # allow to specify fields in resourceless query which returns a sqla tuple
+            # containing only the described fields.
+            # Note that relationships are never loaded for resourceless requests
+            entities = []
+            if not fields:
+                # if no field is given, all the fields of the computed `models` are included.
+                entities = [
+                    getattr(m, attr.key).label(f"{self.resource[m]}.{attr.key}")
+                    for m in models for attr in m._sa_class_manager.attributes
+                    if not util.is_relationship(getattr(m, attr.key))]
+            else:
+                for f_resource, f_field in fields:
+                    if f_resource:
+                        f_model = self.model[f_resource]
+                        if not util.is_relationship(getattr(f_model, f_field)):
+                            entities.append(getattr(f_model, f_field).label(f"{f_resource}.{f_field}"))
+                    else:
+                        # If a field does not describe a resource, the given field is loaded for all the computed `models`.
+                        f_models = [
+                            m for m in models
+                            if hasattr(m, f_field)
+                            and not util.is_relationship(getattr(m, f_field))]
 
-            except sqlalchemy.orm.exc.LoaderStrategyException:
-                # field is a relationship
-                column = getattr(model, f_field)
-                query = query.options(sqlalchemy.orm.joinedload(column).load_only('id'))  # hardcode to foreign field 'id'
-                query = query.options(sqlalchemy.orm.Load(model).load_only('id'))  # to ensure limiting local fields, we set option load_only on local primary key (which is always loaded in anyway)
+                        for f_model in f_models:
+                            entities.append(getattr(f_model, f_field).label(f"{self.resource[f_model]}.{f_field}"))
+
+            query = query.with_entities(*[entity for entity in entities])
+
+        else:
+            for f_resource, f_field in fields:
+
+                if f_resource:
+                    f_model = self.model[f_resource]
+                elif base_model:
+                    f_model = base_model
+
+                # apply field selection to sqla query select statement,
+                # see https://docs.sqlalchemy.org/en/latest/orm/loading_columns.html
+                try:
+                    # field is a property
+                    query = query.options(sqlalchemy.orm.Load(f_model).load_only(f_field))
+
+                except sqlalchemy.orm.exc.LoaderStrategyException:
+                    # field is a relationship
+                    column = getattr(f_model, f_field)
+                    query = query.options(sqlalchemy.orm.joinedload(column).load_only("id"))  # hardcode to foreign field "id"
+                    query = query.options(sqlalchemy.orm.Load(f_model).load_only("id"))  # to ensure limiting local fields, we set option load_only on local primary key (which is always loaded in anyway)
 
         # Serialize and return results
         # managing `result` as sqla model instance or sqla model instance tuple
@@ -348,28 +479,32 @@ class Service(object):
 
     def update_resource(self, resource, id, record):
         """
-        TODO: implement mass update using filters and joinpaths ?
+        Update database accoring the given `resource`, `id` and `record`.
         """
         if not id or id in reserved_ids:
-            # TODO: update using reserved_ids features is not yet implemented
-            raise ValueError(f"Missing id in URI, or invaid id format '{id}'")
+            # TODO: update using filters and reserved_ids features is not yet implemented
+            raise ValueError(f"Missing id in URI, or invalid id format: '{id}'")
 
         query = self.session.query(self.model[resource])
-        if id:
-            query = query.filter_by(id=id)
+        if id: query = query.filter_by(id=id)
+        row = query.one()
+        for field, value in record.items():
+            self.set_property(row, field, value)
 
-        result = query.one()
-        try:
-            for key, value in record.items():
-                # Note: this is disbled, but we keep it for now in case it was a good idea:
-                # if (field and key != field):
-                #     # Note: when the given `uri` specifies a field, the given `record` must contain exactly the field specified.
-                #     raise AssertionError(f"The given record '{record}' must contain exactly the field '{field}' specified in URI")
-                getattr(result, key)  # make sure that the field exists
-                setattr(result, key, value)
-            self.session.commit()
-        except Exception as e:
-            raise e  # FIXME
+        self.session.commit()
+
+    def delete_resource(self, resource, id):
+        """
+        Delete from database accoring the given `resource` and `id`.
+        """
+        if not id or id in reserved_ids:
+            # TODO: update using filters and reserved_ids features is not yet implemented
+            raise ValueError(f"Missing id in URI, or invalid id format: '{id}'")
+
+        query = self.session.query(self.model[resource])
+        query = query.filter_by(id=id)
+        self.session.delete(query.one())
+        self.session.commit()
 
     # def get_field(self, column):
     #     """
@@ -387,8 +522,18 @@ class Service(object):
         """
         column = getattr(self.model[resource], field)
 
+        # Handle column type: marshal value accordingly
+        cast = {
+            sqlalchemy.sql.sqltypes.Integer: lambda value: int(value),
+            sqlalchemy.sql.sqltypes.Boolean: lambda value: True if not value.isnumeric() else bool(int(value))}
+
+        value = cast.get(type(column.type), lambda value: value)(value)
+
+        # Handle comparator
         if comparator == 'eq':
             return column == value
+        if comparator == 'ne':
+            return column != value
         if comparator == 'lt':
             return column < value
         if comparator == 'le':
@@ -400,6 +545,48 @@ class Service(object):
         elif comparator == 'like':
             return getattr(column, 'like')(value)
         elif comparator == 'in':
-            return getattr(column, 'in_')(value.split(',') if value else [])
+            return getattr(column, 'in_')(str(value).split(',') if value else [])
+        elif comparator == 'notin':
+            return getattr(column, 'notin_')(str(value).split(',') if value else [])
         else:
             raise KeyError(f'Comparator not supported: {comparator}')
+
+
+    def set_property(self, model_instance, property_name, value):
+        """
+        Set the given `value` on the `property` of the given `model`, handling
+        ..n and ..1 relationships by setting models instance(s) accordingly.
+        """
+        column = getattr(model_instance.__class__, property_name)
+
+        if type(column.impl) == sqlalchemy.orm.attributes.ScalarAttributeImpl:
+            # column is a scalar
+            try:
+                setattr(model_instance, property_name, value)
+            except Exception as e:
+                raise ValueError(
+                    f"Cannot set property {property_name}={value} to model '{model_instance.__class__.__name__}': "
+                    f"{e.__class__.__name__}: {e}")
+
+        elif util.is_relationship(column):
+            relation = self.model[property_name]
+            relation_id = getattr(relation, "id")
+
+            if isinstance(column.impl, sqlalchemy.orm.attributes.ScalarObjectAttributeImpl):
+                # column is a 1.. relationship
+                relation = self.session.query(relation).filter(relation_id == value)
+                setattr(model_instance, property_name, relation.one() if value else None)
+
+            elif isinstance(column.impl, sqlalchemy.orm.attributes.CollectionAttributeImpl):
+                # column is a n.. relationship
+                relations = self.session.query(relation).filter(relation_id.in_(value))
+                setattr(model_instance, property_name, relations.all())
+                # TODO: allow to add and remove relations one by one, eg:
+                # relation: ["+1", "-2"]        <-- add relation id 1, remove relation id 2
+                # relation: ["+1", "-2", 3, 4]  <-- resets all relations to ids [3, 4] and do same as above
+                # use column.add() and column.remove()
+            else:
+                raise NotImplementedError("Column relationship impl not supported: {column.impl}")
+
+        else:
+            raise NotImplementedError("Column impl not supported: {column.impl}")

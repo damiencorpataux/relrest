@@ -88,7 +88,7 @@
                     network.fit({animation: {duration: 1000, easingFunction: 'easeOutQuint'}});
                     return nodes;
                 }).catch((error) => {
-                    console.warn(`Failed to load resource ${resource}`, error);
+                    console.trace(`Failed to load resource ${resource}`, error);
                 });
             })
         }
@@ -113,7 +113,7 @@
         // Compute end-to-end resources relations from the joinpaths of the given resource
         const join_ends = [];  // a list of tuples eg: [[join_end_1, join_end_2], [join_end_1, join_end_3]]
         for (const joinpath of joinpaths[resource].split('&')) {
-            // TODO: use the restjoint javascript uri parser instead of the 2 lines below:
+            // TODO: use the relrest javascript uri parser instead of the 2 lines below:
             let joinnodes = joinpath.replace(/^\/+/, '').split('/');  // remove leading slash before split
             joinnodes = joinnodes.map((joinnode) => joinnode.split('=')[0].split('.')[0]);  // keep only resource from joinnode descrption that can be eg: resource.field.compatator=1
 
@@ -132,7 +132,7 @@
 
                 // NOTE: this commented code creates duplicated edges,
                 //       due to the combinatory nature of the records
-                //       it might be nice for restjoint to provide multiple
+                //       it might be nice for relrest to provide multiple
                 //       serializers, eg: combinatory and nested (deduplicated).
                 // const edges = [];
                 // for (const relation of records) {
@@ -151,9 +151,9 @@
                 // return edges;
 
                 const edges_map = {};
-                for (const relation of records) {
+                for (const relation of relations) {
                     for (const [resource_from, resource_to] of join_ends) {
-                        // NOTE: deduplicate relations from the combinatory result in `records`.
+                        // NOTE: deduplicate relations from the combinatory result in `relations`.
                         const record_from = relation[resource_from];
                         const record_to = relation[resource_to];
                         const edge_from = `${resource_from}-${record_from.id}`;
@@ -181,8 +181,6 @@
 
                 return edges;
 
-            }).catch((error) => {
-                console.warn(`Failed to load edges for resource '${resource}'`, error);
             });
         });
     }

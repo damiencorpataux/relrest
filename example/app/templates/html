@@ -1,4 +1,4 @@
-{% set sitename = "REST Joint!" %}
+{% set sitename = "RelRest!" %}
 
 <!doctype html>
 

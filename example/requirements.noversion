@@ -1,0 +1,6 @@
+sqlalchemy
+
+flask
+flask-sqlalchemy
+
+faker
