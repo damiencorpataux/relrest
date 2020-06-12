@@ -30,7 +30,7 @@ TODO: provide with the equivalent in language javascript for easy URI generation
 
 import urllib
 
-def encode(resource, id=None, fields=[], joinpaths={}, filters={}, limit=None):
+def encode(resource, id=None, fields=[], joinpaths={}, filters={}, limit=None, order=[]):
     """
     Return an uri from the given `resource_id_field` and `query` object.
 
@@ -48,13 +48,16 @@ def encode(resource, id=None, fields=[], joinpaths={}, filters={}, limit=None):
     fields = ','.join(fields_rf)
     path = '/'.join([resource, id, fields]).rstrip('/')
 
-    # Build uri `query` string component (removing duplicate declarations for the filters and joinpaths)
+    # Build uri `query` string component (removing duplicate declarations for the filters, joinpaths and order)
     filters = set(f"{resource}.{field}.{comparator}={value}" for resource, field, comparator, value in filters)
     joinpaths = set(''.join([f"/{resource}.{field}.{comparator}={value}" for resource, field, comparator, value in joinpath]) for joinpath in joinpaths)
+    order = ','.join([f"{resource}.{field}:{direction}" if resource else f"{field}:{direction}" for resource, field, direction in order])  # order_rfd is [resource[.field[:direction]]]
+
     query = '&'.join([
         *filters,
         *joinpaths,
-        *[f"_limit={limit}"]*(limit is not None)])  # do not include limit if None
+        *[f"_limit={limit}"]*(limit is not None),  # do not include limit if None
+        *[f"_order={order}"]*(bool(order))])  # do not include limit if None
 
     return urllib.parse.urlunparse((
         '',  # scheme

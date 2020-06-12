@@ -19,9 +19,9 @@
     Resources are mapped to sqlalchemy models.
   </p>
   <p>
-    <a href="{{url_for('resource_index')}}" class="float-right">Raw data</a>
     <ul class="resource">
-      {% for resource, uri in resource_index.items() %}
+      {% for resource in rest_service.model.keys()   %}
+        {% set uri = url_for("resource", uri=resource) %}
         <li>
           <div class="resource-display">
             <span class="d-lg-inline d-block">
@@ -39,6 +39,11 @@
       {% endfor %}
     </ul>
   </p>
+  <p>
+    View
+    <a href="{{url_for('resource_index')}}">resources fields and relations</a>.
+  </p>
+
   <hr>
 
   <h3>

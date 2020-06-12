@@ -112,9 +112,9 @@ def populate():
 
     # Just populate it it
 
-    n_event = 1000
-    n_type = 10
-    n_tag = 100
+    n_event = 800
+    n_type = 4
+    n_tag = 8
 
     records = dict(
         type=[Type(name=word)

@@ -65,7 +65,6 @@ def index():
     """
     import urllib
     return flask.render_template("index.html",
-        resource_index=resource_index(),
         service_info=service_info(),
         examples=examples(),
         rest_service=rest_service,
@@ -129,7 +128,15 @@ def resource_index():
     """
     Return the resource index with resources name and uri.
     """
-    return {resource: flask.url_for("resource", uri=resource) for resource in rest_service.model.keys()}
+    from sqlalchemy.inspection import inspect
+    resources = {}
+    for resource in rest_service.model.keys():
+        inspected = inspect(rest_service.model[resource])
+        resources[resource] = {
+            "fields": inspected.columns.keys(),
+            "relations": inspected.relationships.keys()
+        }
+    return resources
 
 @app.route("/decode/<path:uri>")
 def decode(uri):
