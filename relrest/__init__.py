@@ -522,12 +522,15 @@ class Service(object):
         """
         column = getattr(self.model[resource], field)
 
-        # Handle column type: marshal value accordingly
-        cast = {
-            sqlalchemy.sql.sqltypes.Integer: lambda value: int(value),
-            sqlalchemy.sql.sqltypes.Boolean: lambda value: True if not value.isnumeric() else bool(int(value))}
-
-        value = cast.get(type(column.type), lambda value: value)(value)
+        # Marshal value according the comparator
+        if comparator in ('in', 'notin'):
+            value = str(value).split(',') if value else []
+        else:
+            # marshal value according the column type
+            cast = {
+                sqlalchemy.sql.sqltypes.Integer: lambda value: int(value),
+                sqlalchemy.sql.sqltypes.Boolean: lambda value: True if not value.isnumeric() else bool(int(value))}
+            value = cast.get(type(column.type), lambda value: value)(value)
 
         # Handle comparator
         if comparator == 'eq':
@@ -544,10 +547,12 @@ class Service(object):
             return column >= value
         elif comparator == 'like':
             return getattr(column, 'like')(value)
+        elif comparator == 'ilike':
+            return getattr(column, 'like')(value)
         elif comparator == 'in':
-            return getattr(column, 'in_')(str(value).split(',') if value else [])
+            return getattr(column, 'in_')(value)
         elif comparator == 'notin':
-            return getattr(column, 'notin_')(str(value).split(',') if value else [])
+            return getattr(column, 'notin_')(value)
         else:
             raise KeyError(f'Comparator not supported: {comparator}')
 

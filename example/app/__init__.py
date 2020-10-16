@@ -11,7 +11,7 @@ from flask_sqlalchemy import SQLAlchemy
 try:
     import relrest
 except ModuleNotFoundError:
-    # FIXME
+    # FIXME: in case relrest is not installed
     import sys; from os import path
     sys.path.append(path.join(path.dirname(__file__), "../.."))
     import relrest
@@ -23,6 +23,9 @@ app.config["SQLALCHEMY_DATABASE_URI"] = data.engine.url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ECHO"] = True
 app.config["JSONIFY_PRETTYPRINT_REGULAR"] = True
+
+if app.config["DEBUG"]:
+    relrest.log.setLevel(relrest.logging.DEBUG) # FIXME: not having any effect
 
 db = SQLAlchemy(app)
 models = relrest.util.models_from(data)
@@ -52,6 +55,8 @@ def authenticate_every_request():
 
 @app.errorhandler(Exception)
 def unhandled_exception(e):
+    import traceback
+    traceback.print_exc()
     status = {
         AssertionError: 403, # forbidden
         ValueError: 400 # bad request
